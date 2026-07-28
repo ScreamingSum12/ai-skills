@@ -6,9 +6,9 @@
   },
   "plugins": [
     {
-      "name": "artifact-mode",
-      "source": "./plugins/artifact-mode",
-      "description": "Living visual artifact of your session: the prototype up top, the conversation's story below",
+      "name": "kyles-got-skills",
+      "source": "./plugins/kyles-got-skills",
+      "description": "Kyle's Claude Code skills, starting with artifact-mode: a living visual artifact of your session, prototype up top and the conversation's story below",
       "version": "1.0.0",
       "author": {
         "name": "ScreamingSum12"

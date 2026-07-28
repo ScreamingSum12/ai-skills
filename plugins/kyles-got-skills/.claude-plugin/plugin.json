@@ -1,0 +1,9 @@
+{
+  "name": "kyles-got-skills",
+  "description": "Kyle's Claude Code skills. Includes artifact-mode: a living, visual artifact of the current session, with the prototype under discussion rendered as the primary visualization and the conversation's story below it.",
+  "version": "1.0.0",
+  "author": {
+    "name": "ScreamingSum12"
+  },
+  "license": "MIT"
+}
