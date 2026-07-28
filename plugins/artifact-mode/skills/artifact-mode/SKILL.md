@@ -1,99 +1,193 @@
 ---
 name: artifact-mode
-description: Maintain a living, visual claude.ai artifact that retells the story of the CURRENT conversation, refreshed after each turn by a persistent background keeper sub-agent. Use when the user says "/artifact-mode", "turn on artifact mode", "keep a living artifact of this conversation", "start/stop the conversation artifact", or asks for an auto-updating visual summary of the chat. Opt-in per session.
+description: Maintain a living, visual claude.ai artifact for the CURRENT session — the prototype or project under discussion rendered as the primary visualization up top, with the conversation's story below it — refreshed after each turn by a persistent background keeper sub-agent. Use when the user says "/artifact-mode", "turn on artifact mode", "keep a living artifact of this conversation", "start/stop the conversation artifact", or asks for an auto-updating visual summary of the chat. Opt-in per session.
 ---
 
 # Artifact Mode
 
-Keep a single **visual claude.ai artifact** in sync with the conversation. A persistent background **keeper** sub-agent holds the artifact's context and publishes it; you (the primary agent) are just the dispatcher — after each of your responses you feed the keeper a short **delta** describing what changed, and it updates the artifact in place at a stable claude.ai URL.
+Keep a single **visual claude.ai artifact** in sync with the session. The page has two zones:
 
-This works because it runs inside the interactive session: a headless `claude -p` has no `Artifact` tool, but a sub-agent spawned via the Agent tool does. The keeper stays warm across the whole session (resumed via SendMessage with its context intact), so updates are cheap deltas — not full re-renders.
+- **Zone A — The Work:** the prototype/project under discussion, rendered as the primary
+  visualization at the top. For a web prototype that means embedding it *live*.
+- **Zone B — The Conversation:** the story of how the session got here, below Zone A.
+
+If nothing showable exists yet, Zone A is omitted and Zone B is the whole page.
+
+A persistent background **keeper** sub-agent owns the artifact and publishes it; you (the primary
+agent) are just the dispatcher — after each of your responses you feed the keeper a short
+**delta** and it updates the artifact in place at a stable claude.ai URL.
+
+This works because it runs inside the interactive session: a headless `claude -p` has no
+`Artifact` tool, but a sub-agent spawned via the Agent tool does. The keeper stays warm across
+the session (resumed via SendMessage with its context intact), so updates are cheap deltas.
 
 ## Passive operation (most important rule)
 
 This is a **silent, passive background system.** The user should almost never hear about it.
 
-- **Never mention the keeper, the delta, the dispatch, the render, or "updating the artifact"** in your replies. Do not narrate these steps or announce that an update ran.
-- Feed the keeper quietly at the very end of your turn. The Agent/SendMessage calls and their notifications are harness UI; your own prose must not reference them.
-- **Surface the artifact link exactly once** — the moment it is first created — as a single minimal line, then never bring it up again on your own.
-- Only discuss the artifact if the **user explicitly asks** (e.g. "where's the artifact?", "turn it off"). Then answer normally.
-- If a dispatch/respawn fails, stay silent — do not surface errors unless asked. Just try again next turn.
+- **Never mention the keeper, the delta, the dispatch, the render, or "updating the artifact"**
+  in your replies. Do not narrate these steps or announce that an update ran.
+- Feed the keeper quietly at the very end of your turn. The Agent/SendMessage calls and their
+  notifications are harness UI; your own prose must not reference them.
+- **Surface the artifact link exactly once** — the moment it is first created — as a single
+  minimal line, then never bring it up again on your own.
+- Only discuss the artifact if the **user explicitly asks** ("where's the artifact?", "turn it
+  off"). Then answer normally.
+- If a dispatch/respawn fails, stay silent — do not surface errors unless asked. Try again next
+  turn.
 
 ## Roles
-- **Keeper = worker.** A background sub-agent named `artifact-keeper`. Owns the artifact: builds it, edits the on-disk HTML, publishes/updates it, persists the URL.
-- **Primary (you) = dispatcher.** Locate the session, refresh the digest, and send the keeper a short delta each turn. Never render or publish yourself.
 
-## State (durable — source of truth, survives keeper death)
-Under `~/.claude/conversation-artifacts/` (call it `<AM_DIR>`), keyed by `<SESSION_ID>`:
-- `<SESSION_ID>.artifact.html` — current page the keeper edits
-- `<SESSION_ID>.url` — current artifact URL (absent until first publish)
-- `<SESSION_ID>.digest.md` — full conversation digest (rebuild/rehydrate source)
+- **Keeper = worker.** A background sub-agent named `artifact-keeper`. Owns the artifact: reads
+  the prototype's source, builds both zones, edits the on-disk HTML, publishes it.
+- **Primary (you) = dispatcher.** Each turn: run `turn.sh`, decide what the prototype is, send a
+  delta. Never render or publish yourself.
+
+## State (durable — survives keeper death *and* context compaction)
+
+Under `~/.claude/conversation-artifacts/`, keyed by session id:
+
+| file | purpose |
+|---|---|
+| `<SID>.state.json` | active flag, keeper name, current URL — the dispatcher's memory |
+| `<SID>.artifact.html` | current page the keeper edits |
+| `<SID>.url` | current artifact URL (absent until first publish) |
+| `<SID>.digest.md` | conversation digest (rebuild/rehydrate source) |
+
+**Never rely on remembering the session id, transcript path, or whether you already spawned the
+keeper.** Long sessions get compacted and that memory is lost. `turn.sh` re-derives all of it
+from disk on every call.
 
 ## Activation (one-time)
-1. Locate this session's transcript and id:
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/locate-session.sh
-   ```
-   It prints `<session_id>\t<transcript_path>`. Hold both for the session.
-2. Give the user **one** brief, low-key confirmation (e.g. "Artifact mode on — I'll keep a visual artifact of our conversation updated in the background."). Do not explain the mechanism or the keeper. This is the only unprompted activation message.
-3. Do **not** spawn the keeper yet — it's spawned lazily on the first qualifying turn.
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh on
+```
+
+Then give the user **one** brief, low-key confirmation (e.g. "Artifact mode on — I'll keep a
+visual artifact of this session updated in the background."). Don't explain the mechanism. This
+is the only unprompted activation message. Do not spawn the keeper yet — that happens lazily.
 
 ## Each turn (at the very end of your reply — silently)
-1. Refresh the digest and check the 3-turn threshold (substitute real values):
-   ```bash
-   AM_DIR="$HOME/.claude/conversation-artifacts"; mkdir -p "$AM_DIR"
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/digest.sh "<TRANSCRIPT_PATH>" > "$AM_DIR/<SESSION_ID>.digest.md"
-   grep -c '^## Assistant' "$AM_DIR/<SESSION_ID>.digest.md"
-   ```
-   If the Assistant count is **< 3**, stop here for this turn.
-2. **If the keeper is not running yet this session** (you have not spawned it): spawn it with the Agent tool — `name: "artifact-keeper"`, `subagent_type: general-purpose`, `model: sonnet`, `run_in_background: true`, description `"Conversation artifact keeper"` — using the **Keeper spawn prompt** below. Then you're done for this turn (the spawn message itself carries the first delta).
-3. **If the keeper is already running:** `SendMessage` to `artifact-keeper` with a short **delta** (see format below). Do not re-send the standing instructions.
-4. **If that SendMessage fails** (keeper died/timed out): respawn it exactly as in step 2 (the spawn prompt auto-rehydrates from disk), folding this turn's delta into the spawn message.
-5. Handle the keeper's completion notifications silently. On the **first** publish only, surface one line: `📄 Conversation artifact: <url>`. Never again on your own.
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh status
+```
+
+This refreshes the digest and prints `SESSION_ID`, `AM_DIR`, `DIGEST`, `ARTIFACT_HTML`, `TURNS`,
+`KEEPER`, `URL`, `PUBLISHED`, and an `ACTION`. Act on `ACTION`:
+
+- **`SKIP`** — done for this turn. (Either not active, or below the turn threshold: default 3
+  real user turns, override with `AM_MIN_TURNS`.)
+- **`SPAWN`** — spawn the keeper with the Agent tool: `name: "artifact-keeper"`,
+  `subagent_type: general-purpose`, `model: sonnet`, `run_in_background: true`, description
+  `"Conversation artifact keeper"`, using the **Keeper spawn prompt** below. Then record it:
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh mark-spawned artifact-keeper
+  ```
+- **`DISPATCH`** — `SendMessage` to the name in `KEEPER` with just the **delta** (see format
+  below). Do not re-send the standing instructions.
+  - If the SendMessage **fails** (keeper reaped), respawn exactly as in `SPAWN`, folding this
+    turn's delta into the spawn prompt. It auto-rehydrates from disk.
+
+Also: **skip the dispatch entirely for trivial turns** — acknowledgements, "thanks", "yes",
+a one-word course correction. Nothing changed that's worth a render.
+
+When the keeper replies `ARTIFACT_URL=<url>`, record it:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh mark-published "<url>"
+```
+
+If `PUBLISHED` was `false` before this turn, surface one line — `📄 Session artifact: <url>` —
+and never mention it again on your own.
+
+## Identifying the prototype (each turn)
+
+Decide whether this session has produced something **showable**: an app, page, component, script,
+API, dataset, or document that exists on disk and could be demonstrated. If so, pick its **entry
+points** — the smallest set of files (max ~5, absolute paths) that represent what it currently
+is. Prefer the file a person would open to see the thing.
+
+Classify it as one of: `web` | `cli` | `library` | `data` | `design` | `none`.
+
+Use `none` when the session is pure discussion, research, or planning with nothing on disk yet.
+Don't list the whole repo — list what should be *rendered*.
 
 ### Keeper spawn prompt (standing instructions — send once, on spawn/respawn)
+
 ```
 You are `artifact-keeper`: a long-running background agent maintaining ONE living, visual
-claude.ai artifact for a conversation. Work silently; your only reply each time is the URL line.
+claude.ai artifact for a coding session. Work silently; your only reply each time is the URL line.
 
-Read the visual design guidance: ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/visual-prompt.md
+FIRST read the visual design guidance:
+${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/visual-prompt.md
+It defines a two-zone page: Zone A = the prototype/project (primary, top), Zone B = the
+conversation story (secondary, below).
 
-Durable state (source of truth) under ~/.claude/conversation-artifacts/ :
-  HTML:   <SESSION_ID>.artifact.html
-  URL:    <SESSION_ID>.url
-  digest: <SESSION_ID>.digest.md
+Durable state (source of truth):
+  HTML:   <ARTIFACT_HTML>
+  URL:    <AM_DIR>/<SESSION_ID>.url
+  digest: <DIGEST>
 
-FIRST, determine your mode by checking whether <SESSION_ID>.url exists and is non-empty:
-- RESUMING (url present): read that url and the current .artifact.html to rehydrate your mental
-  model of the artifact. Do NOT rebuild from scratch.
-- FRESH (no url): read the .digest.md and build the initial artifact HTML at the .artifact.html
+Determine your mode by checking whether the URL file exists and is non-empty:
+- RESUMING (url present): read the current .artifact.html to rehydrate your model of the page.
+  Do NOT rebuild from scratch.
+- FRESH (no url): read the digest and build the initial artifact HTML at the .artifact.html
   path. Pick a stable, concise title and a topic-fitting favicon emoji.
+
+ZONE A: the PROTOTYPE line below gives a kind and file paths. READ THOSE FILES YOURSELF with the
+Read tool — their contents are not inlined here. Render them as described in visual-prompt.md
+(for `web`, embed live in a sandboxed iframe). If the kind is `none`, omit Zone A entirely.
+Never invent output or fake a working state — render what the code actually is.
 
 Then publish:
 - FRESH: call the Artifact tool to publish the file (private is fine). Write the returned URL
   (only) to the .url file. Reply exactly: ARTIFACT_URL=<url>
-- RESUMING/updating: apply the delta below by making TARGETED Edit-tool changes to the on-disk
-  .artifact.html (extend the timeline, flip the status chip, add a card) — do NOT regenerate the
-  whole page; keep your context small. Then re-publish IN PLACE by passing url:<the stored URL>
-  to the Artifact tool. Overwrite the .url file with the returned url. Reply exactly: ARTIFACT_URL=<url>
+- RESUMING: apply the delta — Zone A re-rendered wholesale if the prototype changed, Zone B
+  extended with TARGETED Edit-tool changes (add a timeline node, flip the status chip, add a
+  card). Do not regenerate Zone B. Then re-publish IN PLACE by passing url:<the stored URL> to
+  the Artifact tool. Overwrite the .url file with the returned url.
+  Reply exactly: ARTIFACT_URL=<url>
 
-Always keep the title and favicon stable across updates. Stay lean and visual. Never converse —
-just do the work and reply with the ARTIFACT_URL line.
+Always keep the title and favicon stable across updates. Never converse — just do the work and
+reply with the ARTIFACT_URL line.
 
-DELTA (what changed this turn):
-<one or two sentences: what the user asked, what you did, any decision/result>
+DELTA: <one or two sentences: what the user asked, what you did, any decision/result>
+PROTOTYPE: <kind> | <comma-separated absolute paths, or "none">
 ```
 
 ### Delta message format (each subsequent turn, via SendMessage)
-Just the newest change, one or two sentences — the keeper already holds the story:
+
+Just the newest change — the keeper already holds the story:
+
 ```
 DELTA: <user asked X; we did/decided Y; result Z>
+PROTOTYPE: <kind> | <paths, or "none">
 ```
 
+Always include the `PROTOTYPE` line, even when unchanged — it's how the keeper knows whether to
+re-render Zone A.
+
 ## Turning it off
-If the user says to stop / pause artifact mode, stop feeding the keeper for the rest of the session. You may leave the keeper idle (harmless) or let it be reaped. The last published URL stays valid.
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh off
+```
+
+Every subsequent `status` returns `ACTION=SKIP`. The last published URL stays valid, and
+`turn.sh on` resumes with the same artifact (keeper name and URL are preserved).
 
 ## Notes
-- **Model:** Sonnet — good visuals at moderate cost. Fires every turn from the 3rd onward.
-- **Privacy:** artifacts are private to the user's account by default; this still publishes conversation content to claude.ai. Flag it only if the conversation is sensitive.
-- **Why a warm keeper:** it remembers the artifact's structure, so per-turn updates are cheap deltas with strong continuity. Durable disk state means a dead keeper is silently respawned and rehydrated — the user never notices.
+
+- **Model:** Sonnet — good visuals at moderate cost.
+- **Cost:** one sub-agent render per non-trivial turn once past the threshold. Raise
+  `AM_MIN_TURNS` if that's too eager.
+- **Privacy — check before activating.** Artifacts are private to the user's account by default,
+  but this publishes session content to claude.ai every turn, and **Zone A publishes actual
+  source code and UI**. If the project is proprietary or the conversation is sensitive, say so
+  plainly, once. If the user says "conversation only", always send `PROTOTYPE: none` from then
+  on and Zone A is dropped.
+- **Why a warm keeper:** it remembers the page structure, so per-turn updates are cheap deltas
+  with strong continuity. Durable disk state means a dead keeper is silently respawned and
+  rehydrated — the user never notices.

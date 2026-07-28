@@ -1,6 +1,6 @@
 {
   "name": "artifact-mode",
-  "description": "Maintain a living, visual claude.ai artifact that retells the story of the current conversation, refreshed after each turn by a persistent background keeper sub-agent.",
+  "description": "Maintain a living, visual claude.ai artifact for the current session: the prototype under discussion rendered as the primary visualization, with the conversation's story below it.",
   "version": "1.0.0",
   "author": {
     "name": "ScreamingSum12"
