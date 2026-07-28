@@ -1,0 +1,18 @@
+{
+  "name": "ai-skills",
+  "description": "Kyle's collection of Claude Code plugins and skills",
+  "owner": {
+    "name": "ScreamingSum12"
+  },
+  "plugins": [
+    {
+      "name": "artifact-mode",
+      "source": "./plugins/artifact-mode",
+      "description": "Maintain a living, visual claude.ai artifact that retells the story of the current conversation",
+      "version": "1.0.0",
+      "author": {
+        "name": "ScreamingSum12"
+      }
+    }
+  ]
+}
