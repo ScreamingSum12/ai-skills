@@ -4,8 +4,10 @@
 # Two things this does that a naive text-extract does not:
 #   1. Counts turns honestly. Only GENUINE user prompts become "## User" —
 #      tool results, task notifications and local-command echoes all arrive as
-#      user-role entries and are filtered out. Genuine prompts carry
-#      `promptSource` and no `toolUseResult`.
+#      user-role entries and are filtered out. Genuine prompts lack
+#      `toolUseResult` and pass the injected-content check. Note: `promptSource`
+#      is NOT required — it is absent on messages sent before artifact mode was
+#      activated, so requiring it would silently drop the whole prior session.
 #   2. Collapses turns. One assistant turn spans many assistant entries; those
 #      are merged into a single "## Assistant" block so `grep -c '^## User'`
 #      actually means "number of user turns".
@@ -33,7 +35,7 @@ jq -s -r '
     | select(.type == "user" or .type == "assistant")
     | select((.isSidechain // false) | not)
     | if .type == "user" then
-        select(has("promptSource") and (has("toolUseResult") | not))
+        select(has("toolUseResult") | not)
         | ( .message.content
             | if type == "string" then .
               else ([ .[]? | select(.type == "text") | .text ] | join("\n")) end
