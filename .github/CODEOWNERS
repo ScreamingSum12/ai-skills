@@ -1,0 +1,10 @@
+# Code owners for this repository.
+#
+# Owners are automatically requested for review on pull requests that touch
+# files they own. Later matching rules take precedence over earlier ones, so
+# keep the catch-all first and add narrower rules below it if that changes.
+#
+# Docs: https://docs.github.com/articles/about-code-owners
+
+# Everything in this repository.
+* @ScreamingSum12
