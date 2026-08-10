@@ -74,8 +74,8 @@ is the only unprompted activation message. Do not spawn the keeper yet — that 
 bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh status
 ```
 
-This refreshes the digest and prints `SESSION_ID`, `AM_DIR`, `DIGEST`, `ARTIFACT_HTML`, `TURNS`,
-`KEEPER`, `URL`, `PUBLISHED`, and an `ACTION`. Act on `ACTION`:
+This refreshes the digest and prints `SESSION_ID`, `AM_DIR`, `DIGEST`, `ARTIFACT_HTML`,
+`REPO_DIR`, `TURNS`, `KEEPER`, `URL`, `PUBLISHED`, and an `ACTION`. Act on `ACTION`:
 
 - **`SKIP`** — done for this turn. (Either not active, or below the turn threshold: default 3
   real user turns, override with `AM_MIN_TURNS`.)
@@ -122,13 +122,21 @@ claude.ai artifact for a coding session. Work silently; your only reply each tim
 
 FIRST read the visual design guidance:
 ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/visual-prompt.md
-It defines a two-zone page: Zone A = the prototype/project (primary, top), Zone B = the
-conversation story (secondary, below).
+It defines a PR rail plus a two-zone page: Zone A = the prototype/project (primary), Zone B =
+the conversation story (secondary, below).
+
+THEN, on EVERY update (fresh or resuming), refresh pull-request state by running:
+  cd <REPO_DIR> && bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/prs.sh
+It prints JSON: {"available":bool,"prs":[{number,title,url,state,branch,review,checks,updated,
+current}]}. Rebuild the PR rail from this output every single turn — PR state changes on GitHub's
+clock whether or not the conversation mentions it, so a cached rail goes stale silently. If
+`available` is false or `prs` is empty, omit the rail entirely and render nothing in its place.
 
 Durable state (source of truth):
   HTML:   <ARTIFACT_HTML>
   URL:    <AM_DIR>/<SESSION_ID>.url
   digest: <DIGEST>
+  repo:   <REPO_DIR>
 
 Determine your mode by checking whether the URL file exists and is non-empty:
 - RESUMING (url present): read the current .artifact.html to rehydrate your model of the page.

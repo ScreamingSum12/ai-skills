@@ -1,12 +1,14 @@
 # Visual guidance for the conversation artifact
 
-You render ONE living, visual artifact with **two zones**, in this order:
+You render ONE living, visual artifact with **two zones plus a PR rail**, in this order:
 
+- **The PR rail.** A compact strip of pull-request cards directly under the page header.
 - **Zone A — The Work.** The prototype or project under discussion, shown as the primary
-  visualization at the top. This is the star of the page.
+  visualization. This is the star of the page.
 - **Zone B — The Conversation.** How the session got here: the arc, decisions, open threads.
 
-Zone A comes first and dominates. Zone B is a clearly separated section beneath it.
+Zone A dominates the page. The PR rail sits above it but stays slim — it's a status band, not a
+section, and must never push Zone A below the fold.
 
 **If there is no prototype or project** (pure discussion, research, planning), omit Zone A
 entirely and let Zone B be the whole page — no empty placeholder, no apology.
@@ -18,6 +20,41 @@ scripts, or images (embed as data URIs). A strict CSP blocks every external host
 (respect `prefers-color-scheme`, good in light and dark). Responsive: relative units, flex/grid,
 `max-width:100%`; any wide element (tables, diagrams, code) scrolls inside its own
 `overflow-x:auto` container so the page body never scrolls sideways.
+
+---
+
+## The PR rail
+
+Pull requests are how work actually ships, so they get prominent placement: a horizontal strip of
+cards immediately below the page header, above Zone A.
+
+You are given PR data as JSON (see the keeper instructions for how to refresh it). Render **one
+card per PR**, and make each card's whole surface a link to the PR's `url`. Every card shows:
+
+- **`#<number>` and the title** — the title is the point, so don't truncate it to a few words.
+  Wrap or clamp to two lines rather than cutting it to nothing.
+- **A state chip**, colour-coded and legible in both themes:
+  `DRAFT` neutral/grey · `OPEN` green · `MERGED` purple · `CLOSED` red
+- **A checks chip** when checks exist: `passing` green · `failing` red · `pending` amber ·
+  `mixed` amber. Omit the chip entirely when `checks` is `none` — don't render "no checks", it's
+  noise.
+- **A review chip** only when `review` is meaningful (`APPROVED`, `CHANGES_REQUESTED`,
+  `REVIEW_REQUIRED`). Omit when `none`.
+- The branch name, small and secondary.
+
+Ordering is already correct in the data — open work first, then most recently updated. Preserve
+it.
+
+**The PR for the current branch** (`current: true`) is the one the reader most likely cares
+about: give it visible emphasis — a brighter border, a subtle accent background, or a small
+"current branch" tag. Exactly one card can be current; often none is.
+
+If `available` is `false`, or `prs` is empty, **omit the rail entirely.** Never render an empty
+strip, a "no pull requests" placeholder, or an error about `gh` being missing — a session with no
+PRs should look like a page that was never going to have them.
+
+Keep the rail to one row on desktop where it fits; let cards wrap on narrow screens rather than
+forcing a horizontal scrollbar on the page body.
 
 ---
 
@@ -98,6 +135,9 @@ to write a paragraph, turn it into a visual instead.
 
 You re-render the SAME artifact as the session grows. Update discipline differs by zone:
 
+- **PR rail: rebuild from the fresh JSON every turn.** PR state moves on GitHub's clock, not the
+  conversation's — a PR can go from open to merged, or checks from pending to failing, without
+  anyone mentioning it. Never carry a stale chip forward.
 - **Zone A: replace wholesale** when the prototype changed. It should always reflect the current
   state of the code, not an accumulation of past states.
 - **Zone B: append.** Extend the timeline, flip the status chip, add a card. Don't rewrite

@@ -75,6 +75,8 @@ case "${1:-status}" in
     echo "AM_DIR=$AM_DIR"
     echo "DIGEST=$DIGEST"
     echo "ARTIFACT_HTML=$AM_DIR/$SID.artifact.html"
+    # The keeper runs prs.sh from here to refresh pull-request state.
+    echo "REPO_DIR=$(pwd)"
     echo "ACTIVE=$active"
 
     if [ "$active" != "true" ]; then

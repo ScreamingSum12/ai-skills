@@ -2,7 +2,13 @@
 
 Keeps a single **living, visual artifact** on claude.ai in sync with your Claude Code session.
 
-The page has two zones:
+The page has a PR rail and two zones:
+
+- **The PR rail.** A compact strip of pull-request cards under the header — number, full title,
+  and colour-coded chips for state (draft/open/merged/closed), CI checks, and review decision.
+  Each card links to the PR, and the one matching your current branch is emphasised. The rail
+  disappears entirely when the repo has no PRs, or when `gh` isn't available.
+
 
 - **Zone A — The Work.** The prototype or project under discussion, rendered as the primary
   visualization at the top. For a web prototype, that means the thing embedded *live* in a
@@ -95,6 +101,17 @@ All under `skills/artifact-mode/assets/`.
 | `turn.sh status` | Refresh the digest and print state plus an `ACTION` |
 | `turn.sh mark-spawned <ref>` | Record the keeper's reference |
 | `turn.sh mark-published <url>` | Record the published URL |
+
+**`prs.sh`** — prints the repo's pull requests as JSON for the PR rail: number, title, url,
+state (with `DRAFT` split out from `OPEN`), branch, review decision, a normalised `checks` rollup
+(`passing`/`failing`/`pending`/`mixed`/`none`), and a `current` flag for the PR on the
+checked-out branch. Open PRs sort first, then most recently updated.
+
+The keeper re-runs it every turn rather than trusting the conversation, because PR state moves on
+GitHub's clock — checks finish and reviews land while nobody is talking about them. It degrades
+quietly: missing `gh`, no authentication, or a non-GitHub repo all yield
+`{"available":false,...,"prs":[]}` and exit 0, and the rail is simply omitted. `AM_PR_LIMIT`
+(default 10) caps how many are fetched.
 
 `status` prints `KEY=VALUE` lines and resolves to one of three actions — `SKIP` (with a `REASON`),
 `SPAWN`, or `DISPATCH`.
