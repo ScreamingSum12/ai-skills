@@ -10,7 +10,8 @@
 #   turn.sh on                     # activate artifact mode for this session
 #   turn.sh off                    # deactivate
 #   turn.sh status                 # (default) refresh digest, print state + ACTION
-#   turn.sh mark-spawned <name>    # record the keeper's agent name
+#   turn.sh mark-spawned <id>      # record the keeper's agent id (NOT its name —
+#                                  # names do not resolve on later turns)
 #   turn.sh mark-published <url>   # record the published artifact URL
 #
 # status prints KEY=VALUE lines. ACTION is the decision the agent acts on:
@@ -59,11 +60,16 @@ case "${1:-status}" in
     echo "ACTIVE=false"
     ;;
   mark-spawned)
-    write_state "$(printf '. + {keeper:"%s"}' "${2:?usage: turn.sh mark-spawned <name>}")"
-    echo "KEEPER=${2}"
+    # Guard explicitly: a ${2:?...} inside the command substitution below only
+    # aborts the subshell, so execution would continue and trip `set -u` here
+    # with a confusing "unbound variable" instead of this usage message.
+    [ $# -ge 2 ] && [ -n "$2" ] || { echo "usage: turn.sh mark-spawned <agent-id>" >&2; exit 2; }
+    write_state "$(printf '. + {keeper:"%s"}' "$2")"
+    echo "KEEPER=$2"
     ;;
   mark-published)
-    url=${2:?usage: turn.sh mark-published <url>}
+    [ $# -ge 2 ] && [ -n "$2" ] || { echo "usage: turn.sh mark-published <url>" >&2; exit 2; }
+    url=$2
     write_state "$(printf '. + {url:"%s"}' "$url")"
     printf '%s' "$url" > "$AM_DIR/$SID.url"
     echo "URL=$url"

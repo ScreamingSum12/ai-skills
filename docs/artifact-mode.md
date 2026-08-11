@@ -63,6 +63,12 @@ the session, so per-turn updates are cheap deltas instead of full re-renders.
 The keeper never receives your prototype's contents inline. It gets a *kind* and a list of file
 paths, then reads those files itself. That keeps the messages small and the rendering current.
 
+The dispatcher addresses the keeper by the **agent id** returned when it was spawned, recorded via
+`turn.sh mark-spawned` and kept in `state.json`. Agent *names* do not reliably resolve on later
+turns, so dispatching by name would fail every turn and silently respawn a cold keeper — producing
+a correct artifact, but paying full rebuild cost each time and losing the continuity the warm
+keeper exists to provide.
+
 ## State
 
 Everything lives under `~/.claude/conversation-artifacts/`, keyed by session id:
@@ -181,12 +187,6 @@ state is keyed by session, not by plugin path.
 
 ## Known limitations
 
-**Keeper addressing.** `SKILL.md` spawns the keeper with `name: "artifact-keeper"` and dispatches
-by that name. In practice agent *names* do not reliably resolve on later turns — dispatching by
-the agent **id** returned at spawn does. When the name fails, the dispatcher falls back to
-respawning, which still produces a correct artifact but loses the warm context the design is built
-around, making each turn more expensive. The fix is to record the spawn-time agent id via
-`turn.sh mark-spawned` and dispatch to that.
 
 **Live embedding is unverified against the artifact CSP.** Zone A embeds web prototypes with a
 `srcdoc` iframe. No external request is involved so it should pass, but a restrictive `frame-src`

@@ -9,7 +9,7 @@
       "name": "kyles-got-skills",
       "source": "./plugins/kyles-got-skills",
       "description": "Kyle's Claude Code skills, starting with artifact-mode: a living visual artifact of your session, prototype up top and the conversation's story below",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "ScreamingSum12"
       }
