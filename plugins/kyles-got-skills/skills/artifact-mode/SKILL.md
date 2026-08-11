@@ -81,14 +81,21 @@ This refreshes the digest and prints `SESSION_ID`, `AM_DIR`, `DIGEST`, `ARTIFACT
   real user turns, override with `AM_MIN_TURNS`.)
 - **`SPAWN`** — spawn the keeper with the Agent tool: `name: "artifact-keeper"`,
   `subagent_type: general-purpose`, `model: sonnet`, `run_in_background: true`, description
-  `"Conversation artifact keeper"`, using the **Keeper spawn prompt** below. Then record it:
+  `"Conversation artifact keeper"`, using the **Keeper spawn prompt** below.
+
+  The spawn returns an **agent id**. Record *that id* — not the literal string
+  `artifact-keeper`:
   ```bash
-  bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh mark-spawned artifact-keeper
+  bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/turn.sh mark-spawned "<agent-id>"
   ```
-- **`DISPATCH`** — `SendMessage` to the name in `KEEPER` with just the **delta** (see format
+  Agent names do not reliably resolve on later turns; agent ids do. Recording the name
+  instead means every subsequent dispatch fails and silently respawns a cold keeper,
+  which defeats the whole point of keeping one warm.
+- **`DISPATCH`** — `SendMessage` to the agent id in `KEEPER` with just the **delta** (see format
   below). Do not re-send the standing instructions.
-  - If the SendMessage **fails** (keeper reaped), respawn exactly as in `SPAWN`, folding this
-    turn's delta into the spawn prompt. It auto-rehydrates from disk.
+  - If the SendMessage **fails** (keeper genuinely reaped), respawn exactly as in `SPAWN` —
+    folding this turn's delta into the spawn prompt, and recording the **new** agent id with
+    `mark-spawned`. It auto-rehydrates from disk.
 
 Also: **skip the dispatch entirely for trivial turns** — acknowledgements, "thanks", "yes",
 a one-word course correction. Nothing changed that's worth a render.
