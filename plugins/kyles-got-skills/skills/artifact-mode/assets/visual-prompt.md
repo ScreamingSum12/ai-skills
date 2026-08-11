@@ -1,12 +1,15 @@
 # Visual guidance for the conversation artifact
 
-You render ONE living, visual artifact with **two zones**, in this order:
+You render ONE living, visual artifact with **two zones plus an important-links section**, in
+this order:
 
+- **Important links.** Everything worth clicking, grouped by type, directly under the header.
 - **Zone A — The Work.** The prototype or project under discussion, shown as the primary
-  visualization at the top. This is the star of the page.
+  visualization. This is the star of the page.
 - **Zone B — The Conversation.** How the session got here: the arc, decisions, open threads.
 
-Zone A comes first and dominates. Zone B is a clearly separated section beneath it.
+Zone A dominates the page. The links section sits above it but stays compact — it's a
+navigation band, not a section with prose, and must never push Zone A below the fold.
 
 **If there is no prototype or project** (pure discussion, research, planning), omit Zone A
 entirely and let Zone B be the whole page — no empty placeholder, no apology.
@@ -18,6 +21,69 @@ scripts, or images (embed as data URIs). A strict CSP blocks every external host
 (respect `prefers-color-scheme`, good in light and dark). Responsive: relative units, flex/grid,
 `max-width:100%`; any wide element (tables, diagrams, code) scrolls inside its own
 `overflow-x:auto` container so the page body never scrolls sideways.
+
+---
+
+## Important links
+
+Everything worth clicking, in one compact band below the page header and above Zone A.
+
+You are given the data as JSON (see the keeper instructions for how to refresh it):
+
+```json
+{ "available": true,
+  "groups": [ { "type": "pull-request", "label": "Pull requests",
+                "links": [ { "slug": "#2", "title": "…", "url": "…",
+                             "state": "OPEN", "checks": "passing",
+                             "review": "none", "current": true } ] } ] }
+```
+
+### Structure
+
+**One sub-group per `type`, in the order given** — pull requests, issues, JIRA, commits,
+artifacts, references. Label each group with its `label`. Groups are visually distinct (a small
+heading, a column, or a bordered cluster) so the eye can jump straight to "the JIRA tickets" or
+"the PRs" without reading every entry.
+
+### Anchor on the slug, not the URL
+
+Each link's clickable text is its **`slug`** — `#2`, `PROJ-412`, `9b8d486`, `docs.github.com`.
+Slugs are short, scannable, and already meaningful to the reader. Render them in a monospace or
+otherwise distinct face so they read as identifiers.
+
+**Never show a raw URL as the link text.** A wall of `https://…` is exactly what this section
+exists to replace.
+
+### Titles carry the meaning
+
+Where `title` is non-empty, show it **beside or beneath the slug** as the human-readable
+explanation — `#2 · Surface pull requests prominently in the artifact`. The slug is the anchor;
+the title is why anyone would click it. Wrap or clamp long titles to two lines rather than
+truncating them to a few words.
+
+Where `title` is empty, the slug stands alone. Don't invent a title, and don't pad with
+placeholder text like "no title available".
+
+### Status chips (pull requests and issues)
+
+- **State**, colour-coded and legible in both themes:
+  `DRAFT` grey · `OPEN` green · `MERGED` purple · `CLOSED` red
+- **Checks** when present: `passing` green · `failing` red · `pending` amber · `mixed` amber.
+  Omit entirely when `checks` is `none` — don't render "no checks", it's noise.
+- **Review** only when meaningful (`APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`). Omit when
+  `none`.
+
+Anything marked `current: true` is the item tied to the checked-out branch — give it visible
+emphasis (brighter border, accent background, or a small "current" tag).
+
+### When there's nothing
+
+If `available` is `false` or `groups` is empty, **omit the whole section.** Never render an empty
+band, a "no links found" placeholder, or an error about `gh` being missing. A session with no
+links should look like a page that was never going to have them. Likewise, omit any individual
+group that has no entries.
+
+Let groups wrap on narrow screens rather than forcing a horizontal scrollbar on the page body.
 
 ---
 
@@ -98,6 +164,10 @@ to write a paragraph, turn it into a visual instead.
 
 You re-render the SAME artifact as the session grows. Update discipline differs by zone:
 
+- **Important links: rebuild from the fresh JSON every turn.** Link state moves on GitHub's
+  clock, not the conversation's — a PR can go from open to merged, or checks from pending to
+  failing, without anyone mentioning it. Never carry a stale chip forward, and never drop a link
+  that's still in the data just because it was mentioned a long time ago.
 - **Zone A: replace wholesale** when the prototype changed. It should always reflect the current
   state of the code, not an accumulation of past states.
 - **Zone B: append.** Extend the timeline, flip the status chip, add a card. Don't rewrite
