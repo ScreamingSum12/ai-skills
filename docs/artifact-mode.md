@@ -2,12 +2,12 @@
 
 Keeps a single **living, visual artifact** on claude.ai in sync with your Claude Code session.
 
-The page has a PR rail and two zones:
+The page has an important-links section and two zones:
 
-- **The PR rail.** A compact strip of pull-request cards under the header — number, full title,
-  and colour-coded chips for state (draft/open/merged/closed), CI checks, and review decision.
-  Each card links to the PR, and the one matching your current branch is emphasised. The rail
-  disappears entirely when the repo has no PRs, or when `gh` isn't available.
+- **Important links.** Everything worth clicking, grouped by type — pull requests, issues, JIRA
+  tickets, commits, artifacts, references. Each link is anchored on a short slug (`#2`,
+  `PROJ-412`, `9b8d486`) with its resolved title alongside, plus state/checks/review chips for
+  PRs and issues. The section disappears entirely when there's nothing to show.
 
 
 - **Zone A — The Work.** The prototype or project under discussion, rendered as the primary
@@ -102,16 +102,38 @@ All under `skills/artifact-mode/assets/`.
 | `turn.sh mark-spawned <ref>` | Record the keeper's reference |
 | `turn.sh mark-published <url>` | Record the published URL |
 
-**`prs.sh`** — prints the repo's pull requests as JSON for the PR rail: number, title, url,
-state (with `DRAFT` split out from `OPEN`), branch, review decision, a normalised `checks` rollup
-(`passing`/`failing`/`pending`/`mixed`/`none`), and a `current` flag for the PR on the
-checked-out branch. Open PRs sort first, then most recently updated.
+**`links.sh`** — collects the session's important links as grouped JSON. Two sources:
 
-The keeper re-runs it every turn rather than trusting the conversation, because PR state moves on
-GitHub's clock — checks finish and reviews land while nobody is talking about them. It degrades
-quietly: missing `gh`, no authentication, or a non-GitHub repo all yield
-`{"available":false,...,"prs":[]}` and exit 0, and the rail is simply omitted. `AM_PR_LIMIT`
-(default 10) caps how many are fetched.
+1. **The repo's pull requests**, via `gh` — carrying live state, a normalised `checks` rollup
+   (`passing`/`failing`/`pending`/`mixed`/`none`), review decision, and a `current` flag for the
+   PR on the checked-out branch.
+2. **URLs harvested from the conversation digest**, classified into `pull-request`, `issue`,
+   `jira`, `commit`, `artifact`, or `reference`.
+
+Each link gets a short **slug** to anchor on — `#2`, `PROJ-412`, `9b8d486`, `docs.github.com` —
+so the artifact never renders a raw URL as link text.
+
+**Title resolution** is deliberately limited to what's safe and cheap: `gh` for GitHub pull
+requests and issues, `git log` for commits, and the surrounding markdown link text (`[Title](url)`)
+for everything else. Arbitrary URLs are never fetched — pulling untrusted page content into the
+artifact to get a title would be both slow and a way to inject content into the page.
+
+**JIRA** detection takes full `*.atlassian.net/browse/KEY-123` URLs always. Bare `KEY-123` codes
+are only recognised when `AM_JIRA_HOST` is set, and even then a denylist drops the many standards
+that share the shape — `UTF-8`, `SHA-256`, `RFC-2119`, `CVE-2021`, `ISO-8601` and friends.
+
+The keeper re-runs it every turn rather than trusting the conversation, because link state moves
+on GitHub's clock — checks finish and reviews land while nobody is talking about them. It degrades
+quietly: missing `gh` drops the PR source but still harvests digest links; missing `jq` or an
+empty result yields `{"available":false,...,"groups":[]}`. It always exits 0 and the section is
+simply omitted.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AM_PR_LIMIT` | `10` | PRs fetched from the repo |
+| `AM_LINK_MAX` | `40` | Cap on links harvested from the digest |
+| `AM_RESOLVE_MAX` | `15` | Cap on `gh` title lookups per run |
+| `AM_JIRA_HOST` | unset | e.g. `acme.atlassian.net`; enables bare `KEY-123` detection |
 
 `status` prints `KEY=VALUE` lines and resolves to one of three actions — `SKIP` (with a `REASON`),
 `SPAWN`, or `DISPATCH`.

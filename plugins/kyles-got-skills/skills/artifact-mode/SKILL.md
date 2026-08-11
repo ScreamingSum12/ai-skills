@@ -122,15 +122,17 @@ claude.ai artifact for a coding session. Work silently; your only reply each tim
 
 FIRST read the visual design guidance:
 ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/visual-prompt.md
-It defines a PR rail plus a two-zone page: Zone A = the prototype/project (primary), Zone B =
-the conversation story (secondary, below).
+It defines an important-links section plus a two-zone page: Zone A = the prototype/project
+(primary), Zone B = the conversation story (secondary, below).
 
-THEN, on EVERY update (fresh or resuming), refresh pull-request state by running:
-  cd <REPO_DIR> && bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/prs.sh
-It prints JSON: {"available":bool,"prs":[{number,title,url,state,branch,review,checks,updated,
-current}]}. Rebuild the PR rail from this output every single turn — PR state changes on GitHub's
-clock whether or not the conversation mentions it, so a cached rail goes stale silently. If
-`available` is false or `prs` is empty, omit the rail entirely and render nothing in its place.
+THEN, on EVERY update (fresh or resuming), refresh the links by running:
+  cd <REPO_DIR> && bash ${CLAUDE_PLUGIN_ROOT}/skills/artifact-mode/assets/links.sh <DIGEST>
+It prints JSON: {"available":bool,"groups":[{type,label,links:[{slug,title,url,...}]}]}, grouped
+by type (pull-request, issue, jira, commit, artifact, reference) with titles already resolved
+where possible. Rebuild the links section from this output every single turn — link state changes
+on GitHub's clock whether or not the conversation mentions it, so a cached section goes stale
+silently. If `available` is false or `groups` is empty, omit the section entirely and render
+nothing in its place.
 
 Durable state (source of truth):
   HTML:   <ARTIFACT_HTML>
