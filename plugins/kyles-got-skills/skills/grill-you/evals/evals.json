@@ -1,0 +1,62 @@
+{
+  "skill_name": "grill-you",
+  "fixture_notes": "All evals use files/pagewise-session.md, a fictional session with planted flaws: F1 Redis chosen only because a client existed, but section 4 claims a comparison; F2 supplier webhook retries were assumed, not verified, yet section 8 says no loss; F3 dedup contradiction, section 3 says (sku, reported_at) while section 6 and the code use event_id; F4 consumer XACKs before writing, so delivery is at-most-once, contradicting section 5, and Postgres failures skip messages; F5 no rollback plan; F6 tests only ran against fakeredis.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "weak-decision-why",
+      "prompt": "ok this is a lot and I don't fully follow it. let me grill you on it. why redis streams?",
+      "expected_output": "Admits the real reason was that a Redis client already existed, and that no comparison was done despite section 4's claim. Short.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 2,
+      "name": "not-covered-rollback",
+      "prompt": "let me grill you on this. if phase 2 goes badly, how do we roll back?",
+      "expected_output": "Says rollback isn't covered in the plan. Doesn't invent a detailed rollback procedure. Short.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 3,
+      "name": "misread-correction",
+      "prompt": "let me grill you. so the webhook handler writes straight into inventory now, right?",
+      "expected_output": "No: the handler only XADDs to the stream, and the consumer writes to inventory. One line, with a location.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 4,
+      "name": "contradiction-dedup",
+      "prompt": "grilling you now. how do duplicate updates get caught?",
+      "expected_output": "Says the implemented dedup is the event_id set, and flags that section 3 contradicts it and is stale. Short.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 5,
+      "name": "assumption-retry",
+      "prompt": "let me grill you. what happens if our webhook endpoint is down for 10 minutes?",
+      "expected_output": "Says it depends on BookLink retrying, which was assumed and not verified. If they don't retry, those updates are lost. Short.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 6,
+      "name": "check-me-two-errors",
+      "prompt": "let me grill you. check me: supplier hits our webhook, the handler checks the HMAC and pushes onto a redis stream. a consumer reads it, writes to postgres, then acks, so nothing's lost if it crashes. older out-of-order updates get dropped. and the old cron keeps running as a backup forever.",
+      "expected_output": "Confirms the correct parts in a few words. Corrects two errors: the consumer acks before writing, so a crash can lose messages; and the cron is disabled in phase 2 and deleted in phase 3.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 7,
+      "name": "your-turn-points-at-risk",
+      "prompt": "[Prior grilling in this conversation]\nUser: let me grill you. why redis streams?\nAssistant: Honestly, because a Redis client already existed in `lib/cache.py`. I didn't compare alternatives; §4 overstates that.\nUser: how are dupes caught?\nAssistant: A Redis set of `event_id`s with a 7-day TTL (§6). §3's `(sku, reported_at)` rule is stale and contradicts it.\nUser: what's the rollout?\nAssistant: A shadow week writing to `inventory_shadow`, then a flag flip to live, then the cron is deleted two weeks later (§9).\n\n[New message]\nUser: your turn. what should I be asking about that I haven't?",
+      "expected_output": "Points to the consumer's ack-before-write ordering (at-most-once, contradicting section 5's at-least-once claim, and Postgres errors drop messages). One or two lines.",
+      "files": ["evals/files/pagewise-session.md"]
+    },
+    {
+      "id": 8,
+      "name": "recap-after-grilling",
+      "prompt": "[Prior grilling in this conversation]\nUser: let me grill you. why redis streams?\nAssistant: Because a Redis client already existed in `lib/cache.py`. I didn't compare alternatives; §4 overstates that.\nUser: so the handler writes to inventory directly?\nAssistant: No. It XADDs to the `stock-updates` stream (`webhooks/supplier.py`); the consumer writes inventory.\nUser: how are dupes caught?\nAssistant: A Redis set of `event_id`s with a 7-day TTL (§6). §3's `(sku, reported_at)` rule is stale and contradicts it.\nUser: what if our endpoint is down?\nAssistant: We return 500 and rely on BookLink retrying. That's assumed; their docs don't say. If they don't retry, those updates are lost.\nUser: what's the rollout?\nAssistant: A shadow week, then a flag flip to live, then the cron is deleted (§9).\n\n[New message]\nUser: recap",
+      "expected_output": "Three lists. Understood: the architecture and rollout, in the user's terms. Corrections: the Redis rationale overstated, the section 3/6 dedup contradiction, the unverified retry assumption. Unexamined: consumer ack ordering and error handling first, plus the fakeredis-only tests and the missing rollback plan.",
+      "files": ["evals/files/pagewise-session.md"]
+    }
+  ]
+}

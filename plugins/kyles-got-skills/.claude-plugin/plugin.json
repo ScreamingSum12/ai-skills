@@ -1,7 +1,7 @@
 {
   "name": "kyles-got-skills",
-  "description": "Kyle's Claude Code skills. Includes artifact-mode: a living, visual artifact of the current session, with the prototype under discussion rendered as the primary visualization and the conversation's story below it.",
-  "version": "1.0.0",
+  "description": "Kyle's Claude Code skills. Includes artifact-mode, a living visual artifact of the current session with the prototype under discussion up top and the conversation's story below it. Also includes grill-you, where you grill the AI with short questions to understand a large amount of its output, and it answers briefly and honestly until you ask for more.",
+  "version": "1.2.0",
   "author": {
     "name": "ScreamingSum12"
   },
