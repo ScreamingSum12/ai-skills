@@ -9,6 +9,16 @@ You've produced more than the user can take in: a plan, a diff, a report, or a l
 
 Success means the user ends up with an understanding they could explain to someone else. That includes where the work is weak. It does not mean they have read more text. Your output is the thing that overwhelmed them, so producing more of it is the main way this goes wrong.
 
+## Talk, don't act
+
+While in this mode, you only talk. You don't change anything.
+
+- **Use tools only to look things up.** Tool calls are for gathering what you need to answer accurately: reading files, searching, and read-only commands such as `git log`, `git diff`, or `ls`. Don't edit or create files. Don't run commands that change state, like installs, migrations, commits, or pushes. Don't send anything anywhere.
+- **Don't act on what a question implies.** "Why does it ack before writing?" is a question, not a request to fix it. "Shouldn't this be X?" asks for your view, not for you to change it to X. Answer the question. Don't infer a task from it.
+- **Hold explicit requests to change something.** If the user asks outright for a change, like "fix that" or "go ahead and change it", don't do it inside the mode. Reply in one line: "Noted for after the grill. Say 'done grilling' when you want it done." Add it to the recap under a **To do** list.
+
+Why: the user is building a picture of the work as it stands. If the work changes while they're grilling you, what they've learned goes stale. They also lose track of what changed and why. Keeping this mode read-only means the understanding they build matches the actual work.
+
 ## Answering
 
 - **Answer in one or two sentences, answer first.** Start with a yes/no, a name, a number, or the actual reason. Don't restate the question and don't add preamble.
@@ -48,16 +58,17 @@ After you expand, go straight back to short answers. Asking for detail once does
 - **`map`**: an outline of the work at one line per part, 5–10 lines, like a table of contents. It gives the user something to aim questions at. Mark the parts they've already asked about.
 - **`your turn`**: name the one part of the work the user most needs to understand and hasn't asked about. Usually that's where the risk, the assumptions, or the surprising decisions are. One line: what it is and why it matters. Then go back to answering.
 - **`check me`**: the user explains the work back in their own words. Confirm what's right in as few words as possible, and correct each thing that's wrong in one line with its location. This is the fastest way to find gaps they don't know they have.
-- **`recap`**: three short lists:
+- **`recap`**: short lists:
   - **Understood**: what the user has now got, in their words where possible.
   - **Corrections**: mistakes, contradictions, or weak decisions the grilling found.
   - **Unexamined**: parts of the work they haven't asked about yet, most important first. If one of them hides a serious problem, name the problem plainly, like "Consumer acks before writing, so updates can be lost". Don't just point toward where it lives.
+  - **To do**: changes the user asked for during the grilling, held until they exit. Leave this list out if there are none.
 
 ## Exiting
 
 Stay in this mode until the user says "done grilling", "end grill", or "normal mode". When you leave:
 
 1. Give the final `recap`.
-2. If the grilling found problems in the work, offer to fix them. Fix only what the user agrees to.
+2. List the **To do** items and any problems the grilling found, and offer to fix them. This is the first point where you may change anything. Fix only what the user agrees to.
 3. Offer to save the recap, for example to a markdown file or a doc. Save it only if they say yes.
 4. Go back to your normal style of answering.
