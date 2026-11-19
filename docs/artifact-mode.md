@@ -130,10 +130,39 @@ simply omitted.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AM_PR_LIMIT` | `10` | PRs fetched from the repo |
+| `AM_PR_SCOPE` | `session` | Which PRs the `gh` source contributes — see below |
+| `AM_PR_LIMIT` | `10` | PRs fetched, for the non-session scopes |
+| `AM_BRANCH_MAX` | `15` | Cap on session branches considered |
 | `AM_LINK_MAX` | `40` | Cap on links harvested from the digest |
-| `AM_RESOLVE_MAX` | `15` | Cap on `gh` title lookups per run |
+| `AM_RESOLVE_MAX` | `15` | Cap on `gh` lookups per run |
 | `AM_JIRA_HOST` | unset | e.g. `acme.atlassian.net`; enables bare `KEY-123` detection |
+
+**`AM_PR_SCOPE`** controls how wide the `gh` source casts:
+
+| Value | Contributes |
+|---|---|
+| `session` (default) | PRs for every branch this session worked on |
+| `branch` | Only the checked-out branch's PR |
+| `mine` | All of your own PRs (`--author @me`) |
+| `all` | Every recent PR in the repo, any author |
+
+The default is scoped to the **session**, not to a branch or an author. Neither of those is the
+right unit: an unfiltered list fills up with whatever anyone in the repo touched most recently,
+while the checked-out branch is too tight in the other direction — a session routinely spans
+several branches and opens more than one PR along the way.
+
+Session branches come from the `HEAD` reflog, bounded by the timestamp of the session
+transcript's first entry. That means a PR opened earlier in the session stays in the section
+after you've moved on to the next branch. Outside a Claude session, where there's no transcript
+to bound by, it falls back to a week of reflog. Detached `HEAD` is fine — the reflog still knows
+where you've been.
+
+Lookup is one broad page filtered locally against the session's branches, with targeted
+per-branch queries only for anything that page missed, so the usual cost is a single API call.
+
+PRs the conversation mentions arrive through the digest source as well, and a PR reaching the
+section that way is enriched with the same live state, checks and review decision as one from
+`gh pr list` — nothing in the section renders without its status chips.
 
 `status` prints `KEY=VALUE` lines and resolves to one of three actions — `SKIP` (with a `REASON`),
 `SPAWN`, or `DISPATCH`.

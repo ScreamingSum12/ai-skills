@@ -18,18 +18,46 @@
 # Always prints valid JSON and exits 0.
 #
 # Usage: links.sh [digest.md]
-# Env:   AM_PR_LIMIT       (default 10) PRs to fetch
+# Env:   AM_PR_SCOPE       (default session) which PRs the gh source contributes:
+#                          session — PRs for every branch this session worked on
+#                          branch  — only the checked-out branch's PR
+#                          mine    — all of your own PRs (--author @me)
+#                          all     — every recent PR in the repo, any author
+#        AM_PR_LIMIT       (default 10) PRs to fetch for non-session scopes
+#        AM_BRANCH_MAX     (default 15) cap on session branches considered
 #        AM_LINK_MAX       (default 40) cap on harvested links
-#        AM_RESOLVE_MAX    (default 15) cap on gh title lookups
+#        AM_RESOLVE_MAX    (default 15) cap on gh lookups
 #        AM_JIRA_HOST      e.g. acme.atlassian.net — enables bare TICKET-123
 #                          detection. Without it, only full JIRA URLs count.
 
 set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIGEST="${1:-}"
+PR_SCOPE="${AM_PR_SCOPE:-session}"
 PR_LIMIT="${AM_PR_LIMIT:-10}"
+BRANCH_MAX="${AM_BRANCH_MAX:-15}"
 LINK_MAX="${AM_LINK_MAX:-40}"
 RESOLVE_MAX="${AM_RESOLVE_MAX:-15}"
 JIRA_HOST="${AM_JIRA_HOST:-}"
+SWEEP=$((PR_LIMIT * 5))   # broad page scanned once, then filtered locally
+TARGETED_MAX=5            # per-branch lookups for anything the sweep missed
+
+# Shared by the PR source and the enrichment pass, so a digest-harvested PR
+# gets exactly the same checks rollup as one from `gh pr list`.
+JQ_DEFS='
+  def check_state:
+    if .conclusion? and (.conclusion | length) > 0 then .conclusion
+    elif .state? and (.state | length) > 0 then .state
+    elif .status? then .status else "PENDING" end;
+  def rollup:
+    (. // []) as $c
+    | if ($c | length) == 0 then "none"
+      elif [$c[] | check_state] | any(. == "FAILURE" or . == "ERROR" or . == "TIMED_OUT" or . == "CANCELLED") then "failing"
+      elif [$c[] | check_state] | any(. == "PENDING" or . == "IN_PROGRESS" or . == "QUEUED" or . == "WAITING") then "pending"
+      elif [$c[] | check_state] | all(. == "SUCCESS" or . == "NEUTRAL" or . == "SKIPPED") then "passing"
+      else "mixed" end;
+'
+PR_FIELDS='number,title,url,state,isDraft,headRefName,reviewDecision,updatedAt,statusCheckRollup'
 
 command -v jq >/dev/null 2>&1 || { printf '{"available":false,"reason":"jq not installed","groups":[]}\n'; exit 0; }
 
@@ -40,23 +68,79 @@ have_gh=false
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then have_gh=true; fi
 
 # ---------------------------------------------------------------- source 1: PRs
+#
+# Scoped by AM_PR_SCOPE. The default is the SESSION: an unfiltered `gh pr list`
+# returns whatever anyone in the repo touched most recently, but scoping to the
+# checked-out branch is too tight in the other direction — a session routinely
+# spans several branches and opens more than one PR. So the scope is every
+# branch HEAD visited since this session began, read from the reflog.
+
+# Epoch of this session's first transcript entry, or empty if we can't tell.
+session_start_epoch() {
+  local tx raw iso
+  tx=$(bash "$HERE/locate-session.sh" 2>/dev/null | cut -f2) || return 1
+  [ -n "$tx" ] && [ -f "$tx" ] || return 1
+  raw=$(head -1 "$tx" | jq -r '.timestamp // empty' 2>/dev/null)
+  [ -n "$raw" ] || return 1
+  iso=${raw%%.*}; iso=${iso%Z}
+  date -u -d "$iso" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%S" "$iso" +%s 2>/dev/null
+}
+
+# Branch names HEAD moved between since $1, newest first, plus the current one.
+# Detached moves record a sha rather than a name, so those are filtered out.
+session_branches() {
+  { git reflog --date=unix 2>/dev/null \
+      | sed -n 's/^[0-9a-f]* HEAD@{\([0-9]*\)}: checkout: moving from \(.*\) to \(.*\)$/\1 \2 \3/p' \
+      | awk -v s="$1" '$1 >= s { print $2; print $3 }'
+    [ -n "$branch" ] && printf '%s\n' "$branch"
+  } | grep -vE '^[0-9a-f]{7,40}$|^HEAD$|^$' | awk '!seen[$0]++' | head -"$BRANCH_MAX"
+}
+
+# One broad page filtered locally to the session's branches — cheaper than a
+# call per branch — then targeted lookups only for branches the page missed.
+session_prs() {
+  local brs brs_json broad out covered n extra b
+  brs=$(session_branches "${START_EPOCH:-0}")
+  [ -z "$brs" ] && { printf '[]'; return 0; }
+  brs_json=$(printf '%s\n' "$brs" | jq -R . | jq -s .)
+  broad=$(gh pr list --state all --limit "$SWEEP" --json "$PR_FIELDS" 2>/dev/null || printf '[]')
+  [ -z "$broad" ] && broad='[]'
+  out=$(printf '%s' "$broad" | jq -c --argjson b "$brs_json" \
+          '[ .[] | select(.headRefName as $h | $b | index($h)) ]')
+  covered=$(printf '%s' "$out" | jq -r '.[].headRefName' | sort -u)
+  n=0
+  for b in $brs; do
+    printf '%s\n' "$covered" | grep -qxF -- "$b" && continue
+    [ "$n" -ge "$TARGETED_MAX" ] && break
+    extra=$(gh pr list --state all --limit 5 --head "$b" --json "$PR_FIELDS" 2>/dev/null || printf '[]')
+    [ -z "$extra" ] && extra='[]'
+    out=$(jq -c -n --argjson a "$out" --argjson e "$extra" '$a + $e')
+    n=$((n + 1))
+  done
+  printf '%s' "$out"
+}
+
+pr_list() {
+  case "$PR_SCOPE" in
+    all)    gh pr list --state all --limit "$PR_LIMIT"                --json "$PR_FIELDS" 2>/dev/null ;;
+    mine)   gh pr list --state all --limit "$PR_LIMIT" --author "@me" --json "$PR_FIELDS" 2>/dev/null ;;
+    branch) gh pr list --state all --limit "$PR_LIMIT" --head "$branch" --json "$PR_FIELDS" 2>/dev/null ;;
+    *)      session_prs ;;
+  esac
+}
+
 if $have_gh && git rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  gh pr list --state all --limit "$PR_LIMIT" \
-     --json number,title,url,state,isDraft,headRefName,reviewDecision,updatedAt,statusCheckRollup \
-     2>/dev/null \
-  | jq -c --arg branch "$branch" '
-      def check_state:
-        if .conclusion? and (.conclusion | length) > 0 then .conclusion
-        elif .state? and (.state | length) > 0 then .state
-        elif .status? then .status else "PENDING" end;
-      def rollup:
-        (. // []) as $c
-        | if ($c | length) == 0 then "none"
-          elif [$c[] | check_state] | any(. == "FAILURE" or . == "ERROR" or . == "TIMED_OUT" or . == "CANCELLED") then "failing"
-          elif [$c[] | check_state] | any(. == "PENDING" or . == "IN_PROGRESS" or . == "QUEUED" or . == "WAITING") then "pending"
-          elif [$c[] | check_state] | all(. == "SUCCESS" or . == "NEUTRAL" or . == "SKIPPED") then "passing"
-          else "mixed" end;
+  [ "$branch" = "HEAD" ] && branch=""   # detached: no branch name to match on
+  # Outside a Claude session we can't know when "this session" began. Fall back
+  # to a week of reflog rather than 0, which would sweep in every branch ever
+  # visited in the repo.
+  START_EPOCH=$(session_start_epoch || true)
+  [ -n "$START_EPOCH" ] || START_EPOCH=$(( $(date -u +%s) - 604800 ))
+  # `branch` scope needs a branch; the others stand on their own.
+  if [ "$PR_SCOPE" != "branch" ] || [ -n "$branch" ]; then
+  pr_list \
+  | jq -c --arg branch "$branch" "$JQ_DEFS"'
       .[] | {
         type: "pull-request",
         slug: ("#" + (.number | tostring)),
@@ -67,6 +151,7 @@ if $have_gh && git rev-parse --git-dir >/dev/null 2>&1; then
         updated: .updatedAt,
         current: (.headRefName == $branch)
       }' >> "$TMP" 2>/dev/null || true
+  fi
 fi
 
 # ------------------------------------------------- source 2: links in the digest
@@ -129,7 +214,12 @@ if [ -n "$DIGEST" ] && [ -f "$DIGEST" ]; then
   fi
 fi
 
-# ------------------------------------------------------- resolve missing titles
+# --------------------------------------------- resolve titles and PR/issue state
+#
+# A link harvested from the digest carries only {type,slug,title,url}. Now that
+# the PR source is scoped to the current branch, most PRs arrive that way, so
+# without this pass they would render with no state, checks or review chips —
+# narrowing the list would have quietly cost the remaining entries their status.
 : > "$TMP.res"
 resolved=0
 while IFS= read -r line; do
@@ -137,19 +227,44 @@ while IFS= read -r line; do
   title=$(printf '%s' "$line" | jq -r '.title // ""')
   url=$(printf '%s' "$line"   | jq -r '.url')
   type=$(printf '%s' "$line"  | jq -r '.type')
-  if [ -z "$title" ] && $have_gh && [ "$resolved" -lt "$RESOLVE_MAX" ]; then
-    got=""
+  state=$(printf '%s' "$line" | jq -r '.state // ""')
+
+  need_title=false; [ -z "$title" ] && need_title=true
+  need_meta=false
+  case "$type" in
+    pull-request|issue) [ -z "$state" ] && need_meta=true ;;
+  esac
+
+  if $have_gh && [ "$resolved" -lt "$RESOLVE_MAX" ] && { $need_title || $need_meta; }; then
     case "$type" in
-      pull-request) got=$(gh pr view "$url" --json title --jq .title 2>/dev/null || true) ;;
-      issue)        got=$(gh issue view "$url" --json title --jq .title 2>/dev/null || true) ;;
+      pull-request)
+        meta=$(gh pr view "$url" --json title,state,isDraft,statusCheckRollup,reviewDecision 2>/dev/null || true)
+        if [ -n "$meta" ]; then
+          line=$(printf '%s' "$line" | jq -c --argjson m "$meta" "$JQ_DEFS"'
+              .title  = (if ((.title // "") | length) > 0 then .title else ($m.title // "") end)
+            | .state  = (if ($m.isDraft and $m.state == "OPEN") then "DRAFT" else $m.state end)
+            | .checks = ($m.statusCheckRollup | rollup)
+            | .review = (if ($m.reviewDecision // "") == "" then "none" else $m.reviewDecision end)')
+          resolved=$((resolved + 1))
+        fi ;;
+      issue)
+        meta=$(gh issue view "$url" --json title,state 2>/dev/null || true)
+        if [ -n "$meta" ]; then
+          line=$(printf '%s' "$line" | jq -c --argjson m "$meta" '
+              .title = (if ((.title // "") | length) > 0 then .title else ($m.title // "") end)
+            | .state = $m.state')
+          resolved=$((resolved + 1))
+        fi ;;
       commit)
-        slug=$(printf '%s' "$line" | jq -r '.slug')
-        got=$(git log -1 --format=%s "$slug" 2>/dev/null || true) ;;
+        if $need_title; then
+          slug=$(printf '%s' "$line" | jq -r '.slug')
+          got=$(git log -1 --format=%s "$slug" 2>/dev/null || true)
+          if [ -n "$got" ]; then
+            line=$(printf '%s' "$line" | jq -c --arg t "$got" '.title = $t')
+            resolved=$((resolved + 1))
+          fi
+        fi ;;
     esac
-    if [ -n "$got" ]; then
-      line=$(printf '%s' "$line" | jq -c --arg t "$got" '.title = $t')
-      resolved=$((resolved + 1))
-    fi
   fi
   printf '%s\n' "$line" >> "$TMP.res"
 done < "$TMP"
