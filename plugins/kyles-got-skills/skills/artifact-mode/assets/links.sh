@@ -18,23 +18,29 @@
 # Always prints valid JSON and exits 0.
 #
 # Usage: links.sh [digest.md]
-# Env:   AM_PR_SCOPE       (default branch) which PRs the gh source contributes:
-#                          branch — only the checked-out branch's PR
-#                          mine   — all of your own PRs (--author @me)
-#                          all    — every recent PR in the repo, any author
-#        AM_PR_LIMIT       (default 10) PRs to fetch
+# Env:   AM_PR_SCOPE       (default session) which PRs the gh source contributes:
+#                          session — PRs for every branch this session worked on
+#                          branch  — only the checked-out branch's PR
+#                          mine    — all of your own PRs (--author @me)
+#                          all     — every recent PR in the repo, any author
+#        AM_PR_LIMIT       (default 10) PRs to fetch for non-session scopes
+#        AM_BRANCH_MAX     (default 15) cap on session branches considered
 #        AM_LINK_MAX       (default 40) cap on harvested links
 #        AM_RESOLVE_MAX    (default 15) cap on gh lookups
 #        AM_JIRA_HOST      e.g. acme.atlassian.net — enables bare TICKET-123
 #                          detection. Without it, only full JIRA URLs count.
 
 set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIGEST="${1:-}"
-PR_SCOPE="${AM_PR_SCOPE:-branch}"
+PR_SCOPE="${AM_PR_SCOPE:-session}"
 PR_LIMIT="${AM_PR_LIMIT:-10}"
+BRANCH_MAX="${AM_BRANCH_MAX:-15}"
 LINK_MAX="${AM_LINK_MAX:-40}"
 RESOLVE_MAX="${AM_RESOLVE_MAX:-15}"
 JIRA_HOST="${AM_JIRA_HOST:-}"
+SWEEP=$((PR_LIMIT * 5))   # broad page scanned once, then filtered locally
+TARGETED_MAX=5            # per-branch lookups for anything the sweep missed
 
 # Shared by the PR source and the enrichment pass, so a digest-harvested PR
 # gets exactly the same checks rollup as one from `gh pr list`.
@@ -63,22 +69,76 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then have_gh
 
 # ---------------------------------------------------------------- source 1: PRs
 #
-# Scoped by AM_PR_SCOPE. The default is the checked-out branch only: in a shared
-# repo an unfiltered `gh pr list` returns whatever anyone touched most recently,
-# which has nothing to do with this session. PRs the conversation actually
-# mentions still arrive via the digest source below.
+# Scoped by AM_PR_SCOPE. The default is the SESSION: an unfiltered `gh pr list`
+# returns whatever anyone in the repo touched most recently, but scoping to the
+# checked-out branch is too tight in the other direction — a session routinely
+# spans several branches and opens more than one PR. So the scope is every
+# branch HEAD visited since this session began, read from the reflog.
+
+# Epoch of this session's first transcript entry, or empty if we can't tell.
+session_start_epoch() {
+  local tx raw iso
+  tx=$(bash "$HERE/locate-session.sh" 2>/dev/null | cut -f2) || return 1
+  [ -n "$tx" ] && [ -f "$tx" ] || return 1
+  raw=$(head -1 "$tx" | jq -r '.timestamp // empty' 2>/dev/null)
+  [ -n "$raw" ] || return 1
+  iso=${raw%%.*}; iso=${iso%Z}
+  date -u -d "$iso" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%S" "$iso" +%s 2>/dev/null
+}
+
+# Branch names HEAD moved between since $1, newest first, plus the current one.
+# Detached moves record a sha rather than a name, so those are filtered out.
+session_branches() {
+  { git reflog --date=unix 2>/dev/null \
+      | sed -n 's/^[0-9a-f]* HEAD@{\([0-9]*\)}: checkout: moving from \(.*\) to \(.*\)$/\1 \2 \3/p' \
+      | awk -v s="$1" '$1 >= s { print $2; print $3 }'
+    [ -n "$branch" ] && printf '%s\n' "$branch"
+  } | grep -vE '^[0-9a-f]{7,40}$|^HEAD$|^$' | awk '!seen[$0]++' | head -"$BRANCH_MAX"
+}
+
+# One broad page filtered locally to the session's branches — cheaper than a
+# call per branch — then targeted lookups only for branches the page missed.
+session_prs() {
+  local brs brs_json broad out covered n extra b
+  brs=$(session_branches "${START_EPOCH:-0}")
+  [ -z "$brs" ] && { printf '[]'; return 0; }
+  brs_json=$(printf '%s\n' "$brs" | jq -R . | jq -s .)
+  broad=$(gh pr list --state all --limit "$SWEEP" --json "$PR_FIELDS" 2>/dev/null || printf '[]')
+  [ -z "$broad" ] && broad='[]'
+  out=$(printf '%s' "$broad" | jq -c --argjson b "$brs_json" \
+          '[ .[] | select(.headRefName as $h | $b | index($h)) ]')
+  covered=$(printf '%s' "$out" | jq -r '.[].headRefName' | sort -u)
+  n=0
+  for b in $brs; do
+    printf '%s\n' "$covered" | grep -qxF -- "$b" && continue
+    [ "$n" -ge "$TARGETED_MAX" ] && break
+    extra=$(gh pr list --state all --limit 5 --head "$b" --json "$PR_FIELDS" 2>/dev/null || printf '[]')
+    [ -z "$extra" ] && extra='[]'
+    out=$(jq -c -n --argjson a "$out" --argjson e "$extra" '$a + $e')
+    n=$((n + 1))
+  done
+  printf '%s' "$out"
+}
+
 pr_list() {
   case "$PR_SCOPE" in
-    all)  gh pr list --state all --limit "$PR_LIMIT"                  --json "$PR_FIELDS" 2>/dev/null ;;
-    mine) gh pr list --state all --limit "$PR_LIMIT" --author "@me"   --json "$PR_FIELDS" 2>/dev/null ;;
-    *)    gh pr list --state all --limit "$PR_LIMIT" --head "$branch" --json "$PR_FIELDS" 2>/dev/null ;;
+    all)    gh pr list --state all --limit "$PR_LIMIT"                --json "$PR_FIELDS" 2>/dev/null ;;
+    mine)   gh pr list --state all --limit "$PR_LIMIT" --author "@me" --json "$PR_FIELDS" 2>/dev/null ;;
+    branch) gh pr list --state all --limit "$PR_LIMIT" --head "$branch" --json "$PR_FIELDS" 2>/dev/null ;;
+    *)      session_prs ;;
   esac
 }
 
 if $have_gh && git rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  # Detached HEAD has no branch to scope to; skip rather than silently widening.
-  if [ "$PR_SCOPE" = "all" ] || [ "$PR_SCOPE" = "mine" ] || { [ -n "$branch" ] && [ "$branch" != "HEAD" ]; }; then
+  [ "$branch" = "HEAD" ] && branch=""   # detached: no branch name to match on
+  # Outside a Claude session we can't know when "this session" began. Fall back
+  # to a week of reflog rather than 0, which would sweep in every branch ever
+  # visited in the repo.
+  START_EPOCH=$(session_start_epoch || true)
+  [ -n "$START_EPOCH" ] || START_EPOCH=$(( $(date -u +%s) - 604800 ))
+  # `branch` scope needs a branch; the others stand on their own.
+  if [ "$PR_SCOPE" != "branch" ] || [ -n "$branch" ]; then
   pr_list \
   | jq -c --arg branch "$branch" "$JQ_DEFS"'
       .[] | {
