@@ -130,10 +130,29 @@ simply omitted.
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `AM_PR_SCOPE` | `branch` | Which PRs the `gh` source contributes — see below |
 | `AM_PR_LIMIT` | `10` | PRs fetched from the repo |
 | `AM_LINK_MAX` | `40` | Cap on links harvested from the digest |
-| `AM_RESOLVE_MAX` | `15` | Cap on `gh` title lookups per run |
+| `AM_RESOLVE_MAX` | `15` | Cap on `gh` lookups per run |
 | `AM_JIRA_HOST` | unset | e.g. `acme.atlassian.net`; enables bare `KEY-123` detection |
+
+**`AM_PR_SCOPE`** controls how wide the `gh` source casts:
+
+| Value | Contributes |
+|---|---|
+| `branch` (default) | Only the checked-out branch's PR |
+| `mine` | All of your own PRs (`--author @me`) |
+| `all` | Every recent PR in the repo, any author |
+
+The default is deliberately tight. In a shared repo an unfiltered `gh pr list` returns whatever
+anyone touched most recently, filling the section with other people's work. PRs the conversation
+actually mentions still arrive through the digest source, so narrowing this costs you nothing
+that belongs to the session. On a detached HEAD there's no branch to scope to, so the `gh` source
+is skipped rather than silently widening.
+
+Note that a PR reaching the section via the digest is enriched with the same live state, checks
+and review decision as one from `gh pr list` — scoping the list down never costs the surviving
+entries their status chips.
 
 `status` prints `KEY=VALUE` lines and resolves to one of three actions — `SKIP` (with a `REASON`),
 `SPAWN`, or `DISPATCH`.

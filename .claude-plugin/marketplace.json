@@ -9,7 +9,7 @@
       "name": "kyles-got-skills",
       "source": "./plugins/kyles-got-skills",
       "description": "Kyle's Claude Code skills: artifact-mode, a living visual artifact of your session, and grill-you, which lets you grill the AI with short questions until you understand its output",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": {
         "name": "ScreamingSum12"
       }
